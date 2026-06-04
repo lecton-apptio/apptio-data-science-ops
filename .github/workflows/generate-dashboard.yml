@@ -1,0 +1,147 @@
+name: Generate Operational Dashboard
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'dashboard/**'
+      - '.github/workflows/generate-dashboard.yml'
+      - 'pyproject.toml'
+  workflow_dispatch:  # Allows manual trigger
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: false
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+          - development
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '18'
+
+jobs:
+  generate-dashboard:
+    name: Generate Dashboard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,datadog]"
+      
+      - name: Run linting
+        run: |
+          ruff check dashboard/
+          black --check dashboard/
+      
+      - name: Run type checking
+        run: |
+          mypy dashboard/
+        continue-on-error: true  # Don't fail on type errors in v0.0.1
+      
+      - name: Run tests
+        run: |
+          pytest tests/ -v --cov=dashboard --cov-report=xml
+        continue-on-error: true  # Don't fail on test errors in v0.0.1
+      
+      - name: Generate dashboard
+        env:
+          DD_ACCESS_TOKEN: ${{ secrets.DD_ACCESS_TOKEN }}
+          DD_SITE: ${{ secrets.DD_SITE }}
+          ENVIRONMENT: ${{ github.event.inputs.environment || 'production' }}
+        run: |
+          python -m dashboard.generate
+      
+      - name: Build static assets
+        run: |
+          python -m dashboard.build
+      
+      - name: Upload dashboard artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-${{ github.sha }}
+          path: dist/
+          retention-days: 30
+      
+      - name: Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          cname: ops-dashboard.apptio.com  # Optional: custom domain
+      
+      - name: Create deployment summary
+        run: |
+          echo "## 🚀 Dashboard Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** v0.0.1" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.inputs.environment || 'production' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Deployed:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Dashboard URL" >> $GITHUB_STEP_SUMMARY
+          echo "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Notify on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Dashboard Generation Failed',
+              body: `Dashboard generation failed for commit ${context.sha}\n\nWorkflow: ${context.workflow}\nRun: ${context.runNumber}`,
+              labels: ['dashboard', 'automation', 'bug']
+            })
+
+  test-local:
+    name: Test Local Workflow
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      
+      - name: Run local tests
+        run: |
+          python -m dashboard.generate --dry-run
+      
+      - name: Output test results
+        run: |
+          echo "## ✅ Local Workflow Test" >> $GITHUB_STEP_SUMMARY
+          echo "Local workflow execution successful" >> $GITHUB_STEP_SUMMARY
+

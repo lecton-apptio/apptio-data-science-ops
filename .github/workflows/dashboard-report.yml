@@ -1,0 +1,61 @@
+name: AI Platform Dashboard Report
+
+on:
+  schedule:
+    # Run every hour
+    - cron: '0 * * * *'
+  workflow_dispatch:  # Allow manual trigger
+  push:
+    branches:
+      - main
+    paths:
+      - 'operational-dashboard/**'
+
+jobs:
+  generate-dashboard:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          cd operational-dashboard
+          pip install -r requirements.txt
+      
+      - name: Generate Dashboard Report
+        env:
+          DD_ACCESS_TOKEN: ${{ secrets.DD_ACCESS_TOKEN }}
+          DD_SITE: ${{ secrets.DD_SITE }}
+        run: |
+          cd operational-dashboard
+          python generate_markdown_report.py
+      
+      - name: Commit and Push Report
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add operational-dashboard/DASHBOARD_REPORT.md
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update dashboard report [skip ci]" && git push)
+      
+      - name: Create Issue on Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Dashboard Report Generation Failed',
+              body: 'The automated dashboard report generation failed. Please check the workflow logs.',
+              labels: ['dashboard', 'automation', 'bug']
+            })
+

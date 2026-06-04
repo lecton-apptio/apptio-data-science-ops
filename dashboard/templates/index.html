@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ app_name }} - v{{ version }}</title>
+    
+    <!-- IBM Carbon Design System -->
+    <link rel="stylesheet" href="https://unpkg.com/carbon-components@10.58.0/css/carbon-components.min.css">
+    <script src="https://unpkg.com/carbon-components@10.58.0/scripts/carbon-components.min.js"></script>
+    
+    <!-- Custom styles -->
+    <style>
+        :root {
+            --cds-productive-heading-01: 1rem;
+            --cds-productive-heading-02: 1.25rem;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f4f4f4;
+        }
+        
+        .banner {
+            background: linear-gradient(90deg, #0f62fe 0%, #0043ce 100%);
+            color: white;
+            padding: 2rem;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .banner h1 {
+            margin: 0;
+            font-size: 2rem;
+            font-weight: 400;
+        }
+        
+        .banner p {
+            margin: 0.5rem 0 0 0;
+            opacity: 0.9;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .version-card {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            background: white;
+            padding: 1rem 1.5rem;
+            border-radius: 4px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+            border-left: 4px solid #0f62fe;
+        }
+        
+        .version-card h3 {
+            margin: 0 0 0.5rem 0;
+            font-size: 0.875rem;
+            color: #525252;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .version-card p {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #0f62fe;
+        }
+        
+        .wip-banner {
+            background: #fff1f1;
+            border-left: 4px solid #da1e28;
+            padding: 1rem 1.5rem;
+            margin-bottom: 2rem;
+            border-radius: 4px;
+        }
+        
+        .wip-banner h2 {
+            margin: 0 0 0.5rem 0;
+            color: #da1e28;
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+        
+        .wip-banner p {
+            margin: 0;
+            color: #525252;
+        }
+        
+        .content-card {
+            background: white;
+            padding: 2rem;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            margin-bottom: 2rem;
+        }
+        
+        .content-card h2 {
+            margin: 0 0 1rem 0;
+            color: #161616;
+            font-size: 1.5rem;
+            font-weight: 400;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .status-badge.wip {
+            background: #fff1f1;
+            color: #da1e28;
+        }
+        
+        .status-badge.active {
+            background: #defbe6;
+            color: #24a148;
+        }
+        
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .info-item {
+            padding: 1rem;
+            background: #f4f4f4;
+            border-radius: 4px;
+        }
+        
+        .info-item h3 {
+            margin: 0 0 0.5rem 0;
+            font-size: 0.875rem;
+            color: #525252;
+            text-transform: uppercase;
+        }
+        
+        .info-item p {
+            margin: 0;
+            font-size: 1.125rem;
+            color: #161616;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <!-- Banner -->
+    <div class="banner">
+        <div class="container">
+            <h1>🤖 {{ app_name }}</h1>
+            <p>Real-time operational insights for Apptio AI Platform</p>
+        </div>
+    </div>
+    
+    <!-- Main Content -->
+    <div class="container">
+        <!-- WIP Banner -->
+        <div class="wip-banner">
+            <h2>🚧 WIP: Operational Review Dashboard</h2>
+            <p>This dashboard is currently under development. Features and metrics will be added incrementally.</p>
+        </div>
+        
+        <!-- Status Card -->
+        <div class="content-card">
+            <h2>Dashboard Status</h2>
+            <div class="info-grid">
+                <div class="info-item">
+                    <h3>Version</h3>
+                    <p>v{{ version }}</p>
+                </div>
+                <div class="info-item">
+                    <h3>Environment</h3>
+                    <p>{{ environment }}</p>
+                </div>
+                <div class="info-item">
+                    <h3>Status</h3>
+                    <p><span class="status-badge wip">Work in Progress</span></p>
+                </div>
+                <div class="info-item">
+                    <h3>Last Updated</h3>
+                    <p id="last-updated">Loading...</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Features Card -->
+        <div class="content-card">
+            <h2>Planned Features</h2>
+            <ul style="color: #525252; line-height: 1.8;">
+                <li>Real-time service health monitoring</li>
+                <li>P95 latency tracking across services</li>
+                <li>Error rate monitoring and alerting</li>
+                <li>Regional performance comparison</li>
+                <li>Interactive charts and visualizations</li>
+                <li>DataDog integration for live metrics</li>
+            </ul>
+        </div>
+        
+        <!-- Services Card -->
+        <div class="content-card">
+            <h2>Monitored Services</h2>
+            <div class="info-grid">
+                <div class="info-item">
+                    <h3>Pythia</h3>
+                    <p><span class="status-badge active">Active</span></p>
+                </div>
+                <div class="info-item">
+                    <h3>Pythia Slackbot</h3>
+                    <p><span class="status-badge active">Active</span></p>
+                </div>
+                <div class="info-item">
+                    <h3>Pythia Insights</h3>
+                    <p><span class="status-badge active">Active</span></p>
+                </div>
+                <div class="info-item">
+                    <h3>Expert Guidance Agent</h3>
+                    <p><span class="status-badge active">Active</span></p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Version Card (Fixed Position) -->
+    <div class="version-card">
+        <h3>Version</h3>
+        <p>v{{ version }}</p>
+    </div>
+    
+    <!-- JavaScript -->
+    <script>
+        // Update last updated time
+        document.getElementById('last-updated').textContent = new Date().toLocaleString();
+        
+        // Health check
+        fetch('/api/health')
+            .then(response => response.json())
+            .then(data => {
+                console.log('Dashboard health:', data);
+            })
+            .catch(error => {
+                console.error('Health check failed:', error);
+            });
+    </script>
+</body>
+</html>
