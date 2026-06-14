@@ -108,44 +108,70 @@ def check_dashboard_json() -> Dict[str, Any]:
 
 def scan_service_repos() -> Dict[str, Any]:
     """Scan for service repositories and their metric instrumentation."""
-    workspace_root = Path.cwd()
+    # Scan parent directory where service repos are located
+    github_root = Path("/Users/lecton/Documents/GitHub")
+    
+    # Known service repos from Bob's protocol
+    target_services = {
+        "pythia", "bifrost", "contextforge", "litellm", "langfuse",
+        "expert-guidance-agent", "pythia-slackbot"
+    }
     
     # Known non-service directories to exclude
     exclude_dirs = {
-        ".git", ".github", ".ruff_cache", "__pycache__", 
+        ".git", ".github", ".ruff_cache", "__pycache__", ".DS_Store",
         "dashboard", "ireland_apptio_ops_dashboard.egg-info",
-        ".venv", "venv", "node_modules"
+        ".venv", "venv", "node_modules", ".vscode", ".deepeval",
+        "apptio-data-science-ops", "operational-dashboard"
     }
     
     service_repos = []
     excluded = []
     
-    # List all directories at workspace root
-    for item in workspace_root.iterdir():
-        if item.is_dir() and item.name not in exclude_dirs:
-            # Check if it's a service repo (has source code)
-            has_python = list(item.rglob("*.py"))
-            has_go = list(item.rglob("*.go"))
-            has_js = list(item.rglob("*.js")) or list(item.rglob("*.ts"))
+    if not github_root.exists():
+        return {
+            "status": "UNRESOLVED",
+            "error": f"GitHub root directory not found: {github_root}",
+            "service_repos": [],
+            "excluded": []
+        }
+    
+    # List all directories at GitHub root
+    for item in github_root.iterdir():
+        if not item.is_dir() or item.name in exclude_dirs or item.name.startswith('.'):
+            continue
             
-            if has_python or has_go or has_js:
-                service_repos.append({
-                    "name": item.name,
-                    "path": str(item),
-                    "languages": {
-                        "python": len(has_python),
-                        "go": len(has_go),
-                        "javascript": len(has_js)
-                    }
-                })
-            else:
-                excluded.append({"name": item.name, "reason": "No source code files found"})
+        # Check if it's a service repo (has source code)
+        has_python = list(item.glob("**/*.py"))[:100]  # Limit to first 100 for performance
+        has_go = list(item.glob("**/*.go"))[:100]
+        has_js = list(item.glob("**/*.js"))[:50] or list(item.glob("**/*.ts"))[:50]
+        
+        if has_python or has_go or has_js:
+            is_target = item.name in target_services
+            service_repos.append({
+                "name": item.name,
+                "path": str(item),
+                "is_target_service": is_target,
+                "languages": {
+                    "python": len(has_python),
+                    "go": len(has_go),
+                    "javascript": len(has_js)
+                }
+            })
+        else:
+            excluded.append({"name": item.name, "reason": "No source code files found"})
+    
+    # Separate target services from other repos
+    target_repos = [r for r in service_repos if r["is_target_service"]]
+    other_repos = [r for r in service_repos if not r["is_target_service"]]
     
     return {
         "status": "COMPLETE",
-        "service_repos": service_repos,
+        "github_root": str(github_root),
+        "target_services": target_repos,
+        "other_repos": other_repos,
         "excluded": excluded,
-        "note": "Metric inventory requires code scanning - not yet implemented"
+        "note": "Metric inventory scanning not yet implemented"
     }
 
 def main():
@@ -216,13 +242,19 @@ def main():
     print("-" * 70)
     repos = scan_service_repos()
     print(f"Status: {repos['status']}")
-    print(f"Service Repos Found: {len(repos['service_repos'])}")
-    for repo in repos['service_repos']:
-        print(f"  - {repo['name']}: {repo['languages']}")
-    if repos['excluded']:
-        print(f"Excluded Directories: {len(repos['excluded'])}")
-        for exc in repos['excluded']:
-            print(f"  - {exc['name']}: {exc['reason']}")
+    if repos['status'] == 'COMPLETE':
+        print(f"GitHub Root: {repos['github_root']}")
+        print(f"Target Services Found: {len(repos['target_services'])}")
+        for repo in repos['target_services']:
+            print(f"  ✅ {repo['name']}: {repo['languages']}")
+        if repos['other_repos']:
+            print(f"Other Repos Found: {len(repos['other_repos'])}")
+            for repo in repos['other_repos'][:5]:  # Show first 5
+                print(f"  - {repo['name']}: {repo['languages']}")
+            if len(repos['other_repos']) > 5:
+                print(f"  ... and {len(repos['other_repos']) - 5} more")
+    else:
+        print(f"Error: {repos.get('error')}")
     print()
     
     # Summary
