@@ -1,6 +1,7 @@
 """Configuration management using Pydantic settings."""
 
 from typing import Literal
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -36,9 +37,7 @@ class Settings(BaseSettings):
     )
 
     # Regions
-    regions: list[str] = Field(
-        default_factory=lambda: ["us-west-2", "eu-west-1", "ap-southeast-2"]
-    )
+    regions: list[str] = Field(default_factory=lambda: ["us-west-2", "eu-west-1", "ap-southeast-2"])
 
     # Metric targets
     p95_latency_target_ms: float = 100.0
