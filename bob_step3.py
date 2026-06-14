@@ -259,34 +259,68 @@ def publish_to_confluence(content: str) -> bool:
         True if successful, False otherwise
     """
     try:
-        from confluence_integration import ConfluenceReader
+        from atlassian import Confluence
         
         space_key = os.getenv("CONFLUENCE_SPACE_KEY")
         url = os.getenv("CONFLUENCE_URL")
         email = os.getenv("CONFLUENCE_EMAIL")
         api_token = os.getenv("CONFLUENCE_API_TOKEN")
+        parent_page_id = os.getenv("CONFLUENCE_PARENT_PAGE_ID")
         
         if not all([space_key, url, email, api_token]):
             print("❌ Missing Confluence credentials")
             return False
         
-        reader = ConfluenceReader(
-            url=url,  # type: ignore
-            email=email,  # type: ignore
-            api_token=api_token,  # type: ignore
-            space_key=space_key  # type: ignore
+        # Initialize Confluence client
+        confluence = Confluence(
+            url=url,
+            username=email,
+            password=api_token,
+            cloud=True
         )
         
         # Generate page title with current date
         page_title = f"Weekly Summary - {datetime.now().strftime('%Y-%m-%d')}"
         
-        # TODO: Implement page creation/update using Confluence API
-        # For now, just verify connectivity
-        space_info = reader.get_space_info()
+        # Check if page already exists
+        existing_page = confluence.get_page_by_title(
+            space=space_key,
+            title=page_title
+        )
         
-        print(f"✅ Would publish to Confluence space: {space_key}")
-        print(f"   Page title: {page_title}")
-        print(f"   Content length: {len(content)} characters")
+        if existing_page:
+            # Update existing page
+            page_id = existing_page['id']
+            result = confluence.update_page(
+                page_id=page_id,
+                title=page_title,
+                body=content,
+                type='page',
+                representation='wiki'
+            )
+            page_url = f"{url}/wiki/spaces/{space_key}/pages/{page_id}"
+            print(f"✅ Updated Confluence page in space: {space_key}")
+            print(f"   Page title: {page_title}")
+            print(f"   Page URL: {page_url}")
+        else:
+            # Create new page
+            result = confluence.create_page(
+                space=space_key,
+                title=page_title,
+                body=content,
+                parent_id=parent_page_id,
+                type='page',
+                representation='wiki'
+            )
+            if result and 'id' in result:
+                page_id = result['id']
+                page_url = f"{url}/wiki/spaces/{space_key}/pages/{page_id}"
+                print(f"✅ Created Confluence page in space: {space_key}")
+                print(f"   Page title: {page_title}")
+                print(f"   Page URL: {page_url}")
+            else:
+                print(f"❌ Failed to create page - no page ID returned")
+                return False
         
         return True
         
