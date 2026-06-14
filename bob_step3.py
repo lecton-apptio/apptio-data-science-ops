@@ -248,7 +248,7 @@ _Dashboard: [AI Platform Operational Dashboard|https://lecton-apptio.github.io/a
     return summary.strip()
 
 
-def publish_to_confluence(content: str) -> bool:
+def publish_to_confluence(content: str) -> tuple[bool, str]:
     """
     Publish summary to Confluence AI space.
     
@@ -256,7 +256,7 @@ def publish_to_confluence(content: str) -> bool:
         content: Confluence wiki markup content
         
     Returns:
-        True if successful, False otherwise
+        Tuple of (success: bool, page_url: str)
     """
     try:
         from atlassian import Confluence
@@ -269,7 +269,7 @@ def publish_to_confluence(content: str) -> bool:
         
         if not all([space_key, url, email, api_token]):
             print("❌ Missing Confluence credentials")
-            return False
+            return False, ""
         
         # Initialize Confluence client
         confluence = Confluence(
@@ -302,6 +302,7 @@ def publish_to_confluence(content: str) -> bool:
             print(f"✅ Updated Confluence page in space: {space_key}")
             print(f"   Page title: {page_title}")
             print(f"   Page URL: {page_url}")
+            return True, page_url
         else:
             # Create new page
             result = confluence.create_page(
@@ -318,15 +319,15 @@ def publish_to_confluence(content: str) -> bool:
                 print(f"✅ Created Confluence page in space: {space_key}")
                 print(f"   Page title: {page_title}")
                 print(f"   Page URL: {page_url}")
+                return True, page_url
             else:
                 print(f"❌ Failed to create page - no page ID returned")
-                return False
+                return False, ""
         
-        return True
         
     except Exception as e:
         print(f"❌ Failed to publish to Confluence: {e}")
-        return False
+        return False, ""
 
 
 def main() -> int:
@@ -388,7 +389,7 @@ def main() -> int:
     
     # Publish to Confluence
     print("📤 Publishing to Confluence...")
-    success = publish_to_confluence(summary)
+    success, page_url = publish_to_confluence(summary)
     print()
     
     if success:
@@ -396,7 +397,10 @@ def main() -> int:
         print("✅ STEP 3 COMPLETE")
         print("=" * 70)
         print()
-        print("Summary generated and ready for publication")
+        print("Summary published to Confluence")
+        if page_url:
+            print(f"📄 Page URL: {page_url}")
+        print()
         print("Next: Implement actual Datadog/Kubecost metric queries")
         return 0
     else:
