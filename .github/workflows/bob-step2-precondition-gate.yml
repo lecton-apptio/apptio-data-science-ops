@@ -1,0 +1,93 @@
+name: BOB STEP 2 - System Precondition Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:  # Manual trigger for testing
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  precondition-gate:
+    name: System Precondition Gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      
+      - name: Run BOB STEP 2 - System Precondition Gate
+        id: gate
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_APP_KEY: ${{ secrets.DD_APP_KEY }}
+          DD_SITE: ${{ secrets.DD_SITE }}
+          CONFLUENCE_URL: ${{ secrets.CONFLUENCE_URL }}
+          CONFLUENCE_USERNAME: ${{ secrets.CONFLUENCE_USERNAME }}
+          CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
+          KUBECOST_URL: ${{ secrets.KUBECOST_URL }}
+          KUBECOST_API_KEY: ${{ secrets.KUBECOST_API_KEY }}
+        run: |
+          python bob_step2.py | tee gate_results.txt
+          echo "gate_status=$?" >> $GITHUB_OUTPUT
+      
+      - name: Upload gate results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: precondition-gate-${{ github.sha }}
+          path: gate_results.txt
+          retention-days: 30
+      
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const results = fs.readFileSync('gate_results.txt', 'utf8');
+            const status = '${{ steps.gate.outputs.gate_status }}' === '0' ? '✅ PASS' : '❌ FAIL';
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🚦 BOB STEP 2 - System Precondition Gate ${status}\n\n\`\`\`\n${results}\n\`\`\``
+            })
+      
+      - name: Create summary
+        if: always()
+        run: |
+          echo "## 🚦 BOB STEP 2 - System Precondition Gate" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat gate_results.txt >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Fail if gate fails
+        if: steps.gate.outputs.gate_status != '0'
+        run: |
+          echo "❌ System precondition gate failed. Review the results above."
+          exit 1
+
+# Made with Bob

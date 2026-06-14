@@ -1,0 +1,66 @@
+name: BOB STEP 1 - Environment Inventory
+
+on:
+  workflow_dispatch:  # Manual trigger only
+  schedule:
+    - cron: '0 9 * * 1'  # Every Monday at 09:00 UTC (10:00 Dublin)
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  environment-inventory:
+    name: Environment Inventory
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      
+      - name: Run BOB STEP 1 - Environment Inventory
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_APP_KEY: ${{ secrets.DD_APP_KEY }}
+          DD_SITE: ${{ secrets.DD_SITE }}
+          CONFLUENCE_URL: ${{ secrets.CONFLUENCE_URL }}
+          CONFLUENCE_USERNAME: ${{ secrets.CONFLUENCE_USERNAME }}
+          CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
+          KUBECOST_URL: ${{ secrets.KUBECOST_URL }}
+          KUBECOST_API_KEY: ${{ secrets.KUBECOST_API_KEY }}
+        run: |
+          python bob_inventory.py
+      
+      - name: Upload inventory report
+        uses: actions/upload-artifact@v4
+        with:
+          name: environment-inventory-${{ github.sha }}
+          path: |
+            bob_inventory_report.json
+            bob_inventory_report.md
+          retention-days: 90
+      
+      - name: Create summary
+        run: |
+          echo "## 📋 BOB STEP 1 - Environment Inventory" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f bob_inventory_report.md ]; then
+            cat bob_inventory_report.md >> $GITHUB_STEP_SUMMARY
+          fi
+
+# Made with Bob
