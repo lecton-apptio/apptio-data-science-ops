@@ -103,6 +103,53 @@ def test_confluence_api() -> Dict[str, Any]:
         }
 
 
+def test_kubecost_api() -> Dict[str, Any]:
+    """Test Kubecost/Cloudability API connectivity."""
+    try:
+        from kubecost_integration import CloudabilityClient
+        
+        # Check for required environment variables
+        opentoken = os.getenv("APPTIO_OPENTOKEN")
+        env_id = os.getenv("APPTIO_ENVIRONMENT_ID")
+        
+        if not opentoken or not env_id:
+            return {
+                "test": "Kubecost/Cloudability API responds (200 OK)",
+                "status": "FAIL",
+                "details": "Missing APPTIO_OPENTOKEN or APPTIO_ENVIRONMENT_ID"
+            }
+        
+        # Initialize client
+        client = CloudabilityClient(
+            apptio_opentoken=opentoken,  # type: ignore
+            environment_id=env_id  # type: ignore
+        )
+        
+        # Test API connectivity by fetching config summary
+        # This is a lightweight call to verify authentication
+        result = client.get_config_summary()
+        
+        if result and isinstance(result, dict):
+            return {
+                "test": "Kubecost/Cloudability API responds (200 OK)",
+                "status": "PASS",
+                "details": f"Successfully authenticated and retrieved config summary"
+            }
+        else:
+            return {
+                "test": "Kubecost/Cloudability API responds (200 OK)",
+                "status": "FAIL",
+                "details": "API returned unexpected response format"
+            }
+            
+    except Exception as e:
+        return {
+            "test": "Kubecost/Cloudability API responds (200 OK)",
+            "status": "FAIL",
+            "details": f"Exception: {str(e)}"
+        }
+
+
 def test_dashboard_json_valid() -> Dict[str, Any]:
     """Test that dashboard.json is valid JSON."""
     try:
@@ -316,6 +363,7 @@ def main():
     tests = [
         test_datadog_api(),
         test_confluence_api(),
+        test_kubecost_api(),
         test_dashboard_json_valid(),
         test_metrics_exist_in_repos()
     ]

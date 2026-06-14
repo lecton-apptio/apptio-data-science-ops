@@ -32,6 +32,7 @@ dependencies = [
     "pydantic-settings>=2.1.0",
     "datadog-integration @ git+https://github.com/lecton-apptio/datadog-integration.git",
     "confluence-integration @ git+https://github.com/lecton-apptio/confluence-integration.git",
+    "kubecost-integration @ git+https://github.com/lecton-apptio/kube-cost-intergration.git",
 ]
 
 [project.optional-dependencies]
