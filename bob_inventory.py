@@ -257,16 +257,19 @@ def main():
     repos = scan_service_repos()
     print(f"Status: {repos['status']}")
     if repos['status'] == 'COMPLETE':
-        print(f"GitHub Root: {repos['github_root']}")
+        if 'dashboard_path' in repos:
+            print(f"Dashboard Path: {repos['dashboard_path']}")
         print(f"Target Services Found: {len(repos['target_services'])}")
         for repo in repos['target_services']:
-            print(f"  ✅ {repo['name']}: {repo['languages']}")
-        if repos['other_repos']:
-            print(f"Other Repos Found: {len(repos['other_repos'])}")
-            for repo in repos['other_repos'][:5]:  # Show first 5
-                print(f"  - {repo['name']}: {repo['languages']}")
-            if len(repos['other_repos']) > 5:
-                print(f"  ... and {len(repos['other_repos']) - 5} more")
+            print(f"  ✅ {repo['name']} (source: {repo.get('source', 'unknown')})")
+        if 'services_in_dashboard' in repos:
+            non_target = [s for s in repos['services_in_dashboard'] if not s['is_target_service']]
+            if non_target:
+                print(f"Other Services in Dashboard: {len(non_target)}")
+                for svc in non_target[:5]:
+                    print(f"  - {svc['name']}")
+                if len(non_target) > 5:
+                    print(f"  ... and {len(non_target) - 5} more")
     else:
         print(f"Error: {repos.get('error')}")
     print()
