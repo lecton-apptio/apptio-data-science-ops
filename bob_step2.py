@@ -26,13 +26,28 @@ def test_datadog_api() -> Dict[str, Any]:
             site=os.getenv("DD_SITE", "datadoghq.com")
         )
         
-        # Test metrics read capability
-        result = validator.test_metrics_read()
+        # Test API key validation first
+        api_key_result = validator.validate_api_key()
+        if not api_key_result or not api_key_result.ok:
+            return {
+                "test": "Datadog API responds (200 OK)",
+                "status": "FAIL",
+                "details": f"API key validation failed: {api_key_result.status if api_key_result else 'No result'}"
+            }
+        
+        # Test dashboard read capability (requires both API key and app key)
+        dashboard_result = validator.test_dashboards_read()
+        if not dashboard_result:
+            return {
+                "test": "Datadog API responds (200 OK)",
+                "status": "FAIL",
+                "details": "Dashboard read test returned None (missing keys?)"
+            }
         
         return {
             "test": "Datadog API responds (200 OK)",
-            "status": "PASS" if result.ok else "FAIL",
-            "details": result.status
+            "status": "PASS" if dashboard_result.ok else "FAIL",
+            "details": dashboard_result.status
         }
     except Exception as e:
         return {
