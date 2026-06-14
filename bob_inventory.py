@@ -107,72 +107,86 @@ def check_dashboard_json() -> Dict[str, Any]:
         return {"status": "UNRESOLVED", "error": f"Invalid JSON: {e}"}
 
 def scan_service_repos() -> Dict[str, Any]:
-    """Scan for service repositories and their metric instrumentation."""
-    # Scan parent directory where service repos are located
-    github_root = Path("/Users/lecton/Documents/GitHub")
-    
-    # Known service repos from Bob's protocol
-    target_services = {
-        "pythia", "bifrost", "contextforge", "litellm", "langfuse",
-        "expert-guidance-agent", "pythia-slackbot"
-    }
-    
-    # Known non-service directories to exclude
-    exclude_dirs = {
-        ".git", ".github", ".ruff_cache", "__pycache__", ".DS_Store",
-        "dashboard", "ireland_apptio_ops_dashboard.egg-info",
-        ".venv", "venv", "node_modules", ".vscode", ".deepeval",
-        "apptio-data-science-ops", "operational-dashboard"
-    }
-    
-    service_repos = []
-    excluded = []
-    
-    if not github_root.exists():
+    """Extract service information from dashboard.json."""
+    try:
+        # Read dashboard.json from the repository
+        dashboard_path = Path(__file__).parent / "dashboard.json"
+        
+        if not dashboard_path.exists():
+            return {
+                "status": "UNRESOLVED",
+                "error": "dashboard.json not found in repository",
+                "target_services": []
+            }
+        
+        with open(dashboard_path, 'r') as f:
+            dashboard_data = json.load(f)
+        
+        # Extract services from dashboard description and widgets
+        services_found = set()
+        
+        # Check description
+        description = dashboard_data.get("description", "")
+        
+        # Check template variables for service definitions
+        template_vars = dashboard_data.get("template_variables", [])
+        for var in template_vars:
+            if var.get("name") == "service":
+                default_service = var.get("default", "")
+                if default_service and default_service != "*":
+                    services_found.add(default_service)
+        
+        # Parse widgets for service mentions in notes
+        widgets = dashboard_data.get("widgets", [])
+        for widget in widgets:
+            definition = widget.get("definition", {})
+            
+            # Check note widgets for service lists
+            if definition.get("type") == "note":
+                content = definition.get("content", "")
+                # Look for service mentions in Application Performance section
+                if "**Services:**" in content:
+                    # Extract services from the line after "**Services:**"
+                    lines = content.split('\n')
+                    for i, line in enumerate(lines):
+                        if "**Services:**" in line:
+                            # Next line should contain service names
+                            if i + 1 < len(lines):
+                                service_line = lines[i + 1]
+                                # Parse comma-separated services
+                                services = [s.strip() for s in service_line.split(',')]
+                                services_found.update(services)
+        
+        # Known target services from Bob's protocol
+        target_services = {
+            "pythia", "bifrost", "contextforge", "litellm", "langfuse",
+            "expert-guidance-agent", "pythia-slackbot", "pythia-insights"
+        }
+        
+        # Match found services with target services
+        tracked_services = []
+        for service in sorted(services_found):
+            is_target = service in target_services
+            tracked_services.append({
+                "name": service,
+                "is_target_service": is_target,
+                "source": "dashboard.json"
+            })
+        
+        return {
+            "status": "COMPLETE",
+            "dashboard_path": str(dashboard_path),
+            "services_in_dashboard": tracked_services,
+            "target_services": [s for s in tracked_services if s["is_target_service"]],
+            "note": "Services extracted from dashboard.json in repository"
+        }
+        
+    except Exception as e:
         return {
             "status": "UNRESOLVED",
-            "error": f"GitHub root directory not found: {github_root}",
-            "service_repos": [],
-            "excluded": []
+            "error": f"Failed to parse dashboard.json: {str(e)}",
+            "target_services": []
         }
-    
-    # List all directories at GitHub root
-    for item in github_root.iterdir():
-        if not item.is_dir() or item.name in exclude_dirs or item.name.startswith('.'):
-            continue
-            
-        # Check if it's a service repo (has source code)
-        has_python = list(item.glob("**/*.py"))[:100]  # Limit to first 100 for performance
-        has_go = list(item.glob("**/*.go"))[:100]
-        has_js = list(item.glob("**/*.js"))[:50] or list(item.glob("**/*.ts"))[:50]
-        
-        if has_python or has_go or has_js:
-            is_target = item.name in target_services
-            service_repos.append({
-                "name": item.name,
-                "path": str(item),
-                "is_target_service": is_target,
-                "languages": {
-                    "python": len(has_python),
-                    "go": len(has_go),
-                    "javascript": len(has_js)
-                }
-            })
-        else:
-            excluded.append({"name": item.name, "reason": "No source code files found"})
-    
-    # Separate target services from other repos
-    target_repos = [r for r in service_repos if r["is_target_service"]]
-    other_repos = [r for r in service_repos if not r["is_target_service"]]
-    
-    return {
-        "status": "COMPLETE",
-        "github_root": str(github_root),
-        "target_services": target_repos,
-        "other_repos": other_repos,
-        "excluded": excluded,
-        "note": "Metric inventory scanning not yet implemented"
-    }
 
 def main():
     """Run STEP 1 - Environment Inventory."""

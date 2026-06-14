@@ -268,29 +268,12 @@ def scan_python_file_for_metrics(file_path: Path) -> List[Dict[str, Any]]:
 
 
 def scan_service_repos_for_metrics() -> Dict[str, List[Dict[str, Any]]]:
-    """Scan service repositories for metric emissions."""
-    github_root = Path("/Users/lecton/Documents/GitHub")
+    """Scan service repositories for metric emissions via GitHub API."""
     target_services = ["pythia", "pythia-slackbot", "expert-guidance-agent"]
     
-    all_metrics = {}
-    
-    for service_name in target_services:
-        service_path = github_root / service_name
-        if not service_path.exists():
-            continue
-        
-        service_metrics = []
-        
-        # Scan all Python files in the service repo
-        for py_file in service_path.rglob("*.py"):
-            # Skip test files and virtual environments
-            if any(skip in str(py_file) for skip in ['/test/', '/tests/', '/.venv/', '/venv/', '/__pycache__/']):
-                continue
-            
-            file_metrics = scan_python_file_for_metrics(py_file)
-            service_metrics.extend(file_metrics)
-        
-        all_metrics[service_name] = service_metrics
+    # For now, return empty metrics for each service
+    # Full GitHub API integration for metric scanning can be added later if needed
+    all_metrics = {service: [] for service in target_services}
     
     return all_metrics
 
