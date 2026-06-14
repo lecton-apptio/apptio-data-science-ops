@@ -6,8 +6,9 @@ Trigger: Tuesday 05:00 Europe/Dublin
 """
 import os
 import sys
+import requests
 from datetime import datetime, timedelta
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -49,32 +50,208 @@ def pull_datadog_metrics(start: datetime, end: datetime) -> Dict[str, Any]:
         Dict of aggregated metrics
     """
     try:
-        from datadog_integration import DatadogValidator
+        from datadog_api_client import ApiClient, Configuration
+        from datadog_api_client.v2.api.metrics_api import MetricsApi
+        from datadog_api_client.v1.api.metrics_api import MetricsApi as MetricsApiV1
         
-        validator = DatadogValidator(
-            api_key=os.getenv("DD_API_KEY"),
-            app_key=os.getenv("DD_APP_KEY"),
-            site=os.getenv("DD_SITE", "datadoghq.com")
-        )
+        # Configure Datadog API client
+        configuration = Configuration()
+        configuration.api_key["apiKeyAuth"] = os.getenv("DD_API_KEY")
+        configuration.api_key["appKeyAuth"] = os.getenv("DD_APP_KEY")
+        configuration.server_variables["site"] = os.getenv("DD_SITE", "datadoghq.com")
         
-        # For now, return placeholder metrics
-        # TODO: Implement actual metric queries using DataDog API
-        metrics = {
-            "total_requests": 0,
-            "error_rate_pct": 0.0,
-            "p95_latency_ms": 0.0,
-            "success_rate_pct": 100.0,
-            "cpu_utilization_pct": 0.0,
-            "memory_utilization_pct": 0.0,
-            "bedrock_calls": 0,
-            "rag_operations": 0
-        }
+        # Convert datetime to Unix timestamps
+        start_ts = int(start.timestamp())
+        end_ts = int(end.timestamp())
+        
+        metrics = {}
+        
+        with ApiClient(configuration) as api_client:
+            metrics_api_v1 = MetricsApiV1(api_client)
+            
+            # Query 1: Total Requests (span count)
+            try:
+                query = f"sum:trace.span.count{{service:pythia,env:production}}.as_count()"
+                response = metrics_api_v1.query_metrics(
+                    _from=start_ts,
+                    to=end_ts,
+                    query=query
+                )
+                if response.series and len(response.series) > 0:
+                    points = response.series[0].pointlist
+                    metrics["total_requests"] = int(sum(p[1] for p in points if p[1] is not None))
+                else:
+                    metrics["total_requests"] = 0
+                print(f"  ✓ Total requests: {metrics['total_requests']}")
+            except Exception as e:
+                print(f"  ⚠ Failed to query total requests: {e}")
+                metrics["total_requests"] = 0
+            
+            # Query 2: Error Count
+            try:
+                query = f"sum:trace.span.count{{service:pythia,env:production,status:error}}.as_count()"
+                response = metrics_api_v1.query_metrics(
+                    _from=start_ts,
+                    to=end_ts,
+                    query=query
+                )
+                error_count = 0
+                if response.series and len(response.series) > 0:
+                    points = response.series[0].pointlist
+                    error_count = int(sum(p[1] for p in points if p[1] is not None))
+                
+                # Calculate error rate
+                if metrics["total_requests"] > 0:
+                    metrics["error_rate_pct"] = round((error_count / metrics["total_requests"]) * 100, 2)
+                    metrics["success_rate_pct"] = round(100 - metrics["error_rate_pct"], 2)
+                else:
+                    metrics["error_rate_pct"] = 0.0
+                    metrics["success_rate_pct"] = 100.0
+                print(f"  ✓ Error rate: {metrics['error_rate_pct']}%")
+            except Exception as e:
+                print(f"  ⚠ Failed to query error rate: {e}")
+                metrics["error_rate_pct"] = 0.0
+                metrics["success_rate_pct"] = 100.0
+            
+            # Query 3: P95 Latency
+            try:
+                query = f"avg:trace.span.duration{{service:pythia,env:production}}.rollup(avg, 3600)"
+                response = metrics_api_v1.query_metrics(
+                    _from=start_ts,
+                    to=end_ts,
+                    query=query
+                )
+                if response.series and len(response.series) > 0:
+                    points = response.series[0].pointlist
+                    # Convert nanoseconds to milliseconds and get average
+                    latencies = [p[1] / 1_000_000 for p in points if p[1] is not None]
+                    if latencies:
+                        # Approximate P95 as 95th percentile of averages
+                        latencies.sort()
+                        p95_index = int(len(latencies) * 0.95)
+                        metrics["p95_latency_ms"] = round(latencies[p95_index], 2)
+                    else:
+                        metrics["p95_latency_ms"] = 0.0
+                else:
+                    metrics["p95_latency_ms"] = 0.0
+                print(f"  ✓ P95 latency: {metrics['p95_latency_ms']}ms")
+            except Exception as e:
+                print(f"  ⚠ Failed to query P95 latency: {e}")
+                metrics["p95_latency_ms"] = 0.0
+            
+            # Query 4: Bedrock API Calls
+            try:
+                query = f"sum:trace.span.count{{service:pythia,env:production,resource_name:*bedrock*}}.as_count()"
+                response = metrics_api_v1.query_metrics(
+                    _from=start_ts,
+                    to=end_ts,
+                    query=query
+                )
+                if response.series and len(response.series) > 0:
+                    points = response.series[0].pointlist
+                    metrics["bedrock_calls"] = int(sum(p[1] for p in points if p[1] is not None))
+                else:
+                    metrics["bedrock_calls"] = 0
+                print(f"  ✓ Bedrock calls: {metrics['bedrock_calls']}")
+            except Exception as e:
+                print(f"  ⚠ Failed to query Bedrock calls: {e}")
+                metrics["bedrock_calls"] = 0
+            
+            # Query 5: RAG Operations
+            try:
+                query = f"sum:trace.span.count{{service:pythia,env:production,resource_name:*rag*}}.as_count()"
+                response = metrics_api_v1.query_metrics(
+                    _from=start_ts,
+                    to=end_ts,
+                    query=query
+                )
+                if response.series and len(response.series) > 0:
+                    points = response.series[0].pointlist
+                    metrics["rag_operations"] = int(sum(p[1] for p in points if p[1] is not None))
+                else:
+                    metrics["rag_operations"] = 0
+                print(f"  ✓ RAG operations: {metrics['rag_operations']}")
+            except Exception as e:
+                print(f"  ⚠ Failed to query RAG operations: {e}")
+                metrics["rag_operations"] = 0
+            
+            # Query 6: CPU Utilization
+            try:
+                query_usage = f"avg:kubernetes.cpu.usage.total{{service:pythia,env:production}}"
+                query_limit = f"avg:kubernetes.cpu.limits{{service:pythia,env:production}}"
+                
+                response_usage = metrics_api_v1.query_metrics(
+                    _from=start_ts,
+                    to=end_ts,
+                    query=query_usage
+                )
+                response_limit = metrics_api_v1.query_metrics(
+                    _from=start_ts,
+                    to=end_ts,
+                    query=query_limit
+                )
+                
+                if (response_usage.series and len(response_usage.series) > 0 and
+                    response_limit.series and len(response_limit.series) > 0):
+                    usage_points = response_usage.series[0].pointlist
+                    limit_points = response_limit.series[0].pointlist
+                    
+                    avg_usage = sum(p[1] for p in usage_points if p[1] is not None) / len(usage_points)
+                    avg_limit = sum(p[1] for p in limit_points if p[1] is not None) / len(limit_points)
+                    
+                    if avg_limit > 0:
+                        metrics["cpu_utilization_pct"] = round((avg_usage / avg_limit) * 100, 2)
+                    else:
+                        metrics["cpu_utilization_pct"] = 0.0
+                else:
+                    metrics["cpu_utilization_pct"] = 0.0
+                print(f"  ✓ CPU utilization: {metrics['cpu_utilization_pct']}%")
+            except Exception as e:
+                print(f"  ⚠ Failed to query CPU utilization: {e}")
+                metrics["cpu_utilization_pct"] = 0.0
+            
+            # Query 7: Memory Utilization
+            try:
+                query_usage = f"avg:kubernetes.memory.usage{{service:pythia,env:production}}"
+                query_limit = f"avg:kubernetes.memory.limits{{service:pythia,env:production}}"
+                
+                response_usage = metrics_api_v1.query_metrics(
+                    _from=start_ts,
+                    to=end_ts,
+                    query=query_usage
+                )
+                response_limit = metrics_api_v1.query_metrics(
+                    _from=start_ts,
+                    to=end_ts,
+                    query=query_limit
+                )
+                
+                if (response_usage.series and len(response_usage.series) > 0 and
+                    response_limit.series and len(response_limit.series) > 0):
+                    usage_points = response_usage.series[0].pointlist
+                    limit_points = response_limit.series[0].pointlist
+                    
+                    avg_usage = sum(p[1] for p in usage_points if p[1] is not None) / len(usage_points)
+                    avg_limit = sum(p[1] for p in limit_points if p[1] is not None) / len(limit_points)
+                    
+                    if avg_limit > 0:
+                        metrics["memory_utilization_pct"] = round((avg_usage / avg_limit) * 100, 2)
+                    else:
+                        metrics["memory_utilization_pct"] = 0.0
+                else:
+                    metrics["memory_utilization_pct"] = 0.0
+                print(f"  ✓ Memory utilization: {metrics['memory_utilization_pct']}%")
+            except Exception as e:
+                print(f"  ⚠ Failed to query memory utilization: {e}")
+                metrics["memory_utilization_pct"] = 0.0
         
         print(f"✅ Pulled Datadog metrics for {start.date()} to {end.date()}")
         return metrics
         
     except Exception as e:
         print(f"❌ Failed to pull Datadog metrics: {e}")
+        import traceback
+        traceback.print_exc()
         return {}
 
 
@@ -97,11 +274,10 @@ def pull_kubecost_data(start: datetime, end: datetime) -> Dict[str, Any]:
             environment_id=os.getenv("APPTIO_ENVIRONMENT_ID")  # type: ignore
         )
         
-        # Get config summary to verify connectivity
-        config = client.get_config_summary()
+        # Format dates for Kubecost API (YYYY-MM-DD)
+        start_date = start.strftime("%Y-%m-%d")
+        end_date = end.strftime("%Y-%m-%d")
         
-        # For now, return placeholder costs
-        # TODO: Implement actual cost queries using Kubecost API
         costs = {
             "total_cost_usd": 0.0,
             "compute_cost_usd": 0.0,
@@ -110,11 +286,117 @@ def pull_kubecost_data(start: datetime, end: datetime) -> Dict[str, Any]:
             "bedrock_cost_usd": 0.0
         }
         
+        # Query Kubecost allocation API for cost breakdown
+        try:
+            # Get allocation data for the time window
+            # Kubecost API endpoint: /model/allocation
+            # Parameters: window (start,end), aggregate (namespace, service, etc.)
+            
+            # Note: The CloudabilityClient is for Apptio Cloudability, not Kubecost
+            # Kubecost requires direct HTTP API calls
+            import requests
+            
+            kubecost_url = os.getenv("KUBECOST_URL", "http://kubecost-cost-analyzer.kubecost:9090")
+            
+            # Query allocation API
+            allocation_url = f"{kubecost_url}/model/allocation"
+            params = {
+                "window": f"{start_date},{end_date}",
+                "aggregate": "namespace",
+                "accumulate": "true"
+            }
+            
+            response = requests.get(allocation_url, params=params, timeout=30)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Parse allocation data
+            if "data" in data and len(data["data"]) > 0:
+                # Sum costs across all namespaces
+                for allocation in data["data"]:
+                    for namespace, details in allocation.items():
+                        if isinstance(details, dict):
+                            # Extract cost components
+                            cpu_cost = details.get("cpuCost", 0.0) or 0.0
+                            ram_cost = details.get("ramCost", 0.0) or 0.0
+                            pv_cost = details.get("pvCost", 0.0) or 0.0
+                            network_cost = details.get("networkCost", 0.0) or 0.0
+                            
+                            costs["compute_cost_usd"] += cpu_cost + ram_cost
+                            costs["storage_cost_usd"] += pv_cost
+                            costs["network_cost_usd"] += network_cost
+                
+                costs["total_cost_usd"] = (
+                    costs["compute_cost_usd"] +
+                    costs["storage_cost_usd"] +
+                    costs["network_cost_usd"]
+                )
+                
+                print(f"  ✓ Compute cost: ${costs['compute_cost_usd']:.2f}")
+                print(f"  ✓ Storage cost: ${costs['storage_cost_usd']:.2f}")
+                print(f"  ✓ Network cost: ${costs['network_cost_usd']:.2f}")
+                print(f"  ✓ Total infrastructure cost: ${costs['total_cost_usd']:.2f}")
+            
+        except requests.exceptions.RequestException as e:
+            print(f"  ⚠ Kubecost API unavailable: {e}")
+            print(f"  ℹ Using placeholder costs (Kubecost not configured)")
+        except Exception as e:
+            print(f"  ⚠ Failed to parse Kubecost data: {e}")
+        
+        # Estimate Bedrock costs based on API call volume
+        # This is an approximation - real costs require token tracking
+        try:
+            # Get Bedrock call count from Datadog metrics
+            from datadog_api_client import ApiClient, Configuration
+            from datadog_api_client.v1.api.metrics_api import MetricsApi as MetricsApiV1
+            
+            configuration = Configuration()
+            configuration.api_key["apiKeyAuth"] = os.getenv("DD_API_KEY")
+            configuration.api_key["appKeyAuth"] = os.getenv("DD_APP_KEY")
+            configuration.server_variables["site"] = os.getenv("DD_SITE", "datadoghq.com")
+            
+            start_ts = int(start.timestamp())
+            end_ts = int(end.timestamp())
+            
+            with ApiClient(configuration) as api_client:
+                metrics_api_v1 = MetricsApiV1(api_client)
+                
+                query = f"sum:trace.span.count{{service:pythia,env:production,resource_name:*bedrock*}}.as_count()"
+                response = metrics_api_v1.query_metrics(
+                    _from=start_ts,
+                    to=end_ts,
+                    query=query
+                )
+                
+                if response.series and len(response.series) > 0:
+                    points = response.series[0].pointlist
+                    bedrock_calls = int(sum(p[1] for p in points if p[1] is not None))
+                    
+                    # Estimate cost: Assume average of 1000 tokens per call
+                    # Claude 3 Sonnet pricing: ~$3/1M input + $15/1M output tokens
+                    # Approximate: $0.009 per call (500 input + 500 output tokens)
+                    estimated_cost_per_call = 0.009
+                    costs["bedrock_cost_usd"] = round(bedrock_calls * estimated_cost_per_call, 2)
+                    
+                    print(f"  ✓ Bedrock cost (estimated): ${costs['bedrock_cost_usd']:.2f} ({bedrock_calls} calls)")
+                else:
+                    costs["bedrock_cost_usd"] = 0.0
+        except Exception as e:
+            print(f"  ⚠ Failed to estimate Bedrock costs: {e}")
+            costs["bedrock_cost_usd"] = 0.0
+        
+        # Round all costs to 2 decimal places
+        for key in costs:
+            costs[key] = round(costs[key], 2)
+        
         print(f"✅ Pulled Kubecost data for {start.date()} to {end.date()}")
         return costs
         
     except Exception as e:
         print(f"❌ Failed to pull Kubecost data: {e}")
+        import traceback
+        traceback.print_exc()
         return {}
 
 
