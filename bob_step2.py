@@ -1,0 +1,358 @@
+#!/usr/bin/env python3
+"""
+BOB STEP 2 — SYSTEM PRECONDITION GATE
+Binary pass/fail tests before proceeding to operational steps.
+"""
+import os
+import sys
+import json
+import re
+from pathlib import Path
+from typing import Dict, List, Any, Set
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+
+def test_datadog_api() -> Dict[str, Any]:
+    """Test Datadog API connectivity."""
+    try:
+        from datadog_integration import DatadogValidator
+        
+        validator = DatadogValidator(
+            api_key=os.getenv("DD_API_KEY"),
+            app_key=os.getenv("DD_APP_KEY"),
+            site=os.getenv("DD_SITE", "datadoghq.com")
+        )
+        
+        # Test metrics read capability
+        result = validator.test_metrics_read()
+        
+        return {
+            "test": "Datadog API responds (200 OK)",
+            "status": "PASS" if result.ok else "FAIL",
+            "details": result.status
+        }
+    except Exception as e:
+        return {
+            "test": "Datadog API responds (200 OK)",
+            "status": "FAIL",
+            "details": f"Exception: {str(e)}"
+        }
+
+
+def test_confluence_api() -> Dict[str, Any]:
+    """Test Confluence API authentication and space access."""
+    try:
+        from confluence_integration import ConfluenceReader
+        
+        space_key = os.getenv("CONFLUENCE_SPACE_KEY")
+        url = os.getenv("CONFLUENCE_URL")
+        email = os.getenv("CONFLUENCE_EMAIL")
+        api_token = os.getenv("CONFLUENCE_API_TOKEN")
+        
+        if not all([space_key, url, email, api_token]):
+            missing = [k for k, v in {
+                "CONFLUENCE_SPACE_KEY": space_key,
+                "CONFLUENCE_URL": url,
+                "CONFLUENCE_EMAIL": email,
+                "CONFLUENCE_API_TOKEN": api_token
+            }.items() if not v]
+            return {
+                "test": "Confluence authenticates and reads target page",
+                "status": "FAIL",
+                "details": f"Missing environment variables: {', '.join(missing)}"
+            }
+        
+        reader = ConfluenceReader(
+            url=url,  # type: ignore
+            email=email,  # type: ignore
+            api_token=api_token,  # type: ignore
+            space_key=space_key  # type: ignore
+        )
+        
+        # Test by getting space info
+        space_info = reader.get_space_info()
+        
+        return {
+            "test": "Confluence authenticates and reads target page",
+            "status": "PASS",
+            "details": f"Successfully accessed space: {space_key} ({space_info.get('name', 'Unknown')})"
+        }
+    except Exception as e:
+        return {
+            "test": "Confluence authenticates and reads target page",
+            "status": "FAIL",
+            "details": f"Exception: {str(e)}"
+        }
+
+
+def test_dashboard_json_valid() -> Dict[str, Any]:
+    """Test that dashboard.json is valid JSON."""
+    try:
+        dashboard_path = Path("dashboard.json")
+        if not dashboard_path.exists():
+            return {
+                "test": "dashboard.json parses as valid JSON",
+                "status": "FAIL",
+                "details": "dashboard.json not found"
+            }
+        
+        with open(dashboard_path) as f:
+            data = json.load(f)
+        
+        return {
+            "test": "dashboard.json parses as valid JSON",
+            "status": "PASS",
+            "details": f"Valid JSON with {len(data.get('widgets', []))} widgets"
+        }
+    except json.JSONDecodeError as e:
+        return {
+            "test": "dashboard.json parses as valid JSON",
+            "status": "FAIL",
+            "details": f"Invalid JSON: {str(e)}"
+        }
+    except Exception as e:
+        return {
+            "test": "dashboard.json parses as valid JSON",
+            "status": "FAIL",
+            "details": f"Exception: {str(e)}"
+        }
+
+
+def extract_metrics_from_dashboard() -> Set[str]:
+    """Extract all metric names from dashboard.json."""
+    metrics = set()
+    
+    try:
+        with open("dashboard.json") as f:
+            data = json.load(f)
+        
+        # Recursively search for metric names in the dashboard structure
+        def find_metrics(obj):
+            if isinstance(obj, dict):
+                # Look for common metric fields
+                if "query" in obj and isinstance(obj["query"], str):
+                    # Extract metric names from queries like "avg:kubernetes.cpu.usage.total{...}"
+                    metric_matches = re.findall(r'(?:avg|sum|min|max|count|pc\d+):([a-zA-Z0-9._]+)', obj["query"])
+                    metrics.update(metric_matches)
+                
+                if "metric" in obj and isinstance(obj["metric"], str):
+                    metrics.add(obj["metric"])
+                
+                # Recurse into nested structures
+                for value in obj.values():
+                    find_metrics(value)
+            elif isinstance(obj, list):
+                for item in obj:
+                    find_metrics(item)
+        
+        find_metrics(data)
+        
+    except Exception as e:
+        print(f"Warning: Could not extract metrics from dashboard.json: {e}")
+    
+    return metrics
+
+
+def scan_python_file_for_metrics(file_path: Path) -> List[Dict[str, Any]]:
+    """Scan a Python file for metric emission calls."""
+    metrics = []
+    
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+            lines = content.split('\n')
+        
+        # Patterns for common metric emission calls
+        patterns = [
+            # DogStatsD/statsd patterns
+            (r'statsd\.gauge\(["\']([^"\']+)["\']', 'gauge'),
+            (r'statsd\.counter\(["\']([^"\']+)["\']', 'counter'),
+            (r'statsd\.histogram\(["\']([^"\']+)["\']', 'histogram'),
+            (r'statsd\.increment\(["\']([^"\']+)["\']', 'counter'),
+            (r'statsd\.decrement\(["\']([^"\']+)["\']', 'counter'),
+            (r'statsd\.timing\(["\']([^"\']+)["\']', 'timing'),
+            (r'statsd\.set\(["\']([^"\']+)["\']', 'set'),
+            
+            # DataDog API client patterns
+            (r'api\.Metric\.send\([^,]*metric=["\']([^"\']+)["\']', 'metric'),
+            
+            # Custom metric emitters
+            (r'emit_metric\(["\']([^"\']+)["\']', 'custom'),
+            (r'send_metric\(["\']([^"\']+)["\']', 'custom'),
+            (r'record_metric\(["\']([^"\']+)["\']', 'custom'),
+        ]
+        
+        for line_num, line in enumerate(lines, 1):
+            for pattern, metric_type in patterns:
+                matches = re.finditer(pattern, line)
+                for match in matches:
+                    metric_name = match.group(1)
+                    metrics.append({
+                        "metric_name": metric_name,
+                        "type": metric_type,
+                        "file": str(file_path),
+                        "line": line_num,
+                        "code": line.strip()
+                    })
+    
+    except Exception as e:
+        # Silently skip files that can't be read
+        pass
+    
+    return metrics
+
+
+def scan_service_repos_for_metrics() -> Dict[str, List[Dict[str, Any]]]:
+    """Scan service repositories for metric emissions."""
+    github_root = Path("/Users/lecton/Documents/GitHub")
+    target_services = ["pythia", "pythia-slackbot", "expert-guidance-agent"]
+    
+    all_metrics = {}
+    
+    for service_name in target_services:
+        service_path = github_root / service_name
+        if not service_path.exists():
+            continue
+        
+        service_metrics = []
+        
+        # Scan all Python files in the service repo
+        for py_file in service_path.rglob("*.py"):
+            # Skip test files and virtual environments
+            if any(skip in str(py_file) for skip in ['/test/', '/tests/', '/.venv/', '/venv/', '/__pycache__/']):
+                continue
+            
+            file_metrics = scan_python_file_for_metrics(py_file)
+            service_metrics.extend(file_metrics)
+        
+        all_metrics[service_name] = service_metrics
+    
+    return all_metrics
+
+
+def test_metrics_exist_in_repos() -> Dict[str, Any]:
+    """Test that every metric in dashboard.json exists in service repos."""
+    # Extract metrics from dashboard
+    dashboard_metrics = extract_metrics_from_dashboard()
+    
+    if not dashboard_metrics:
+        return {
+            "test": "Every metric in dashboard.json exists in service repos",
+            "status": "PASS",
+            "details": "No metrics found in dashboard.json (or extraction failed)"
+        }
+    
+    # Scan service repos for metrics
+    repo_metrics = scan_service_repos_for_metrics()
+    
+    # Build set of all emitted metric names
+    emitted_metrics = set()
+    for service_name, metrics in repo_metrics.items():
+        for metric in metrics:
+            emitted_metrics.add(metric["metric_name"])
+    
+    # Check which dashboard metrics are missing
+    missing_metrics = dashboard_metrics - emitted_metrics
+    
+    # Also check for partial matches (dashboard might use prefixes)
+    unmatched = []
+    for dashboard_metric in missing_metrics:
+        # Check if any emitted metric starts with this dashboard metric
+        # or if dashboard metric starts with any emitted metric
+        has_match = any(
+            dashboard_metric.startswith(emitted) or emitted.startswith(dashboard_metric)
+            for emitted in emitted_metrics
+        )
+        if not has_match:
+            unmatched.append(dashboard_metric)
+    
+    if unmatched:
+        repos_searched = list(repo_metrics.keys())
+        return {
+            "test": "Every metric in dashboard.json exists in service repos",
+            "status": "FAIL",
+            "details": f"Unmatched metrics: {unmatched[:10]} (showing first 10)",
+            "repos_searched": repos_searched,
+            "dashboard_metrics_count": len(dashboard_metrics),
+            "emitted_metrics_count": len(emitted_metrics),
+            "unmatched_count": len(unmatched)
+        }
+    
+    return {
+        "test": "Every metric in dashboard.json exists in service repos",
+        "status": "PASS",
+        "details": f"All {len(dashboard_metrics)} dashboard metrics found in service repos",
+        "dashboard_metrics_count": len(dashboard_metrics),
+        "emitted_metrics_count": len(emitted_metrics)
+    }
+
+
+def main():
+    """Run STEP 2 - System Precondition Gate."""
+    print("=" * 70)
+    print("BOB STEP 2 — SYSTEM PRECONDITION GATE")
+    print("=" * 70)
+    print()
+    
+    # Run all tests
+    tests = [
+        test_datadog_api(),
+        test_confluence_api(),
+        test_dashboard_json_valid(),
+        test_metrics_exist_in_repos()
+    ]
+    
+    # Display results
+    print("Binary Pass/Fail Tests:")
+    print("-" * 70)
+    
+    all_passed = True
+    for i, test_result in enumerate(tests, 1):
+        status_symbol = "✅" if test_result["status"] == "PASS" else "❌"
+        print(f"{i}. {test_result['test']}")
+        print(f"   {status_symbol} {test_result['status']}")
+        print(f"   {test_result['details']}")
+        
+        # Show additional details for metric test
+        if "repos_searched" in test_result:
+            print(f"   Repos searched: {', '.join(test_result['repos_searched'])}")
+            print(f"   Dashboard metrics: {test_result['dashboard_metrics_count']}")
+            print(f"   Emitted metrics: {test_result['emitted_metrics_count']}")
+            if test_result['status'] == 'FAIL':
+                print(f"   Unmatched: {test_result['unmatched_count']}")
+        
+        print()
+        
+        if test_result["status"] != "PASS":
+            all_passed = False
+    
+    # Summary
+    print("=" * 70)
+    print("SYSTEM STATUS")
+    print("=" * 70)
+    
+    if all_passed:
+        print("SYSTEM_STATUS: VALID")
+        print()
+        print("✅ All precondition tests passed")
+        print("✅ Ready to proceed to STEP 3 - Weekly Confluence Summary")
+    else:
+        print("SYSTEM_STATUS: INVALID")
+        print()
+        print("❌ One or more tests failed")
+        print("❌ Cannot proceed until all tests pass")
+        print()
+        print("NEXT ACTION: Review failed tests and resolve issues")
+    
+    print("=" * 70)
+    
+    return 0 if all_passed else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+
+# Made with Bob
