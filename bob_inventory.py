@@ -61,7 +61,7 @@ def check_datadog_library() -> Dict[str, Any]:
 def check_env_variables() -> Dict[str, Any]:
     """Check required environment variables."""
     required_vars = {
-        "CONFLUENCE_PAGE_ID": os.getenv("CONFLUENCE_PARENT_PAGE_ID"),  # Using PARENT as fallback
+        "CONFLUENCE_PAGE_ID": os.getenv("CONFLUENCE_PAGE_ID") or os.getenv("CONFLUENCE_PARENT_PAGE_ID"),
         "CONFLUENCE_URL": os.getenv("CONFLUENCE_URL"),
         "CONFLUENCE_EMAIL": os.getenv("CONFLUENCE_EMAIL"),
         "CONFLUENCE_API_TOKEN": os.getenv("CONFLUENCE_API_TOKEN"),
