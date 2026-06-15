@@ -683,7 +683,7 @@ def main() -> int:
         if page_url:
             print(f"📄 Page URL: {page_url}")
         print()
-        print("Next: Implement actual Datadog/Kubecost metric queries")
+        print("Next: Grant Datadog API permissions to enable real metrics (see PHASE2_COMPLETE.md)")
         return 0
     else:
         print("=" * 70)
